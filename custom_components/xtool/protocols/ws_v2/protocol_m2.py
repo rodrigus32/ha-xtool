@@ -80,6 +80,18 @@ M2_PATH_PERIPHERAL_LID = "/v1/project/peripheral/lid"
 M2_PATH_PERIPHERAL_PALLET = "/v1/project/peripheral/pallet"
 M2_PATH_PERIPHERAL_FILL_LIGHT = "/v1/project/peripheral/fill-light"
 M2_PATH_PERIPHERAL_AIR_PUMP = "/v1/project/peripheral/airPump-control"
+# Key list Studio 1.9.x sends with GET /v1/platform/device/config.
+M2_CONFIG_KEYS = (
+    "fillLightBrightness", "smokeFanTimeout", "beepEnable", "autoDectect",
+    "laserCleanTipEnable", "airPumpSpeedEngrave", "airPumpSpeedCutting",
+    "flameSensitivity", "laserEngravingCutoff3W", "laserEngravingCutoff10W",
+    "laserEngravingCutoff20W", "laserEngravingCutoff40W",
+    "laserCuttingCutoff3W", "laserCuttingCutoff10W",
+    "laserCuttingCutoff20W", "laserCuttingCutoff40W", "automationId",
+    "slantEnable", "smokeFanEngraveSpeed", "smokeFanBitmapSpeed",
+    "smokeFanCuttingSpeed", "smokeFanCleanTime", "backPlaneCleanTime",
+    "fillLightCleanTime", "cameraCleanTime",
+)
 M2_PATH_PERIPHERAL_SMOKE_FAN = "/v1/project/peripheral/smokeFan-control"
 
 # Inkjet (read-only surface — actions cap/clean deferred).
@@ -223,13 +235,27 @@ class M2WSV2Protocol(WSV2Protocol):
                 self._latest[dst] = kv[src]
 
     async def _poll_m2_configs(self) -> None:
+        # Firmware 40.141.012+ rejects a bare GET ("in_data is not
+        # array"); Studio 1.9 sends ``data:{kv:[<keys>]}``.
         try:
-            cfg = await self.request(M2_PATH_CONFIG, "GET")
+            cfg = await self.request(
+                M2_PATH_CONFIG, "GET", data={"kv": list(M2_CONFIG_KEYS)}
+            )
         except Exception as err:
             _LOGGER.debug("M2 %s failed: %s", M2_PATH_CONFIG, err)
             return
         if isinstance(cfg, dict):
-            self._apply_m2_configs(cfg)
+            kv = cfg.get("kv")
+            if isinstance(kv, list):  # [{key, value}] form
+                kv = {
+                    i["key"]: i.get("value")
+                    for i in kv
+                    if isinstance(i, dict) and "key" in i
+                }
+            elif not isinstance(kv, dict):
+                kv = cfg
+            _LOGGER.debug("M2 config reply: %s", cfg)
+            self._apply_m2_configs(kv)
 
     async def _poll_m2_statistics(self, state: XtoolDeviceState) -> None:
         """GET /v1/project/process/statistics — bundle route ``workingInfo``.
@@ -354,6 +380,7 @@ class M2WSV2Protocol(WSV2Protocol):
         if (
             model is not None
             and getattr(model, "has_inkjet", False)
+            and not getattr(self, "_inkjet_absent", False)
             and slow_tick
         ):
             await self._poll_inkjet(state)
@@ -391,11 +418,13 @@ class M2WSV2Protocol(WSV2Protocol):
         field at its previous value.
         """
         # Ink volumes (C/M/Y/K).
+        failures = 0
         try:
             vol = await self.request(M2_PATH_INKJET_INK_VOLUME, "GET")
         except Exception as err:
             _LOGGER.debug("M2 %s failed: %s", M2_PATH_INKJET_INK_VOLUME, err)
             vol = {}
+            failures += 1
         if isinstance(vol, dict):
             for src, dst in (
                 ("C", "inkjet_ink_c"),
@@ -413,6 +442,7 @@ class M2WSV2Protocol(WSV2Protocol):
         except Exception as err:
             _LOGGER.debug("M2 %s failed: %s", M2_PATH_INKJET_CAP_STATUS, err)
             cap = {}
+            failures += 1
         if isinstance(cap, dict):
             status = cap.get("status")
             if isinstance(status, (int, bool)):
@@ -427,6 +457,7 @@ class M2WSV2Protocol(WSV2Protocol):
         except Exception as err:
             _LOGGER.debug("M2 %s failed: %s", M2_PATH_INKJET_INK_STATUS, err)
             tone = {}
+            failures += 1
         if isinstance(tone, dict):
             status = tone.get("status")
             if isinstance(status, (int, bool)):
@@ -439,6 +470,7 @@ class M2WSV2Protocol(WSV2Protocol):
         except Exception as err:
             _LOGGER.debug("M2 %s failed: %s", M2_PATH_INKJET_INFO, err)
             info = {}
+            failures += 1
         if isinstance(info, dict):
             if info.get("SN") is not None:
                 state.inkjet_sn = str(info.get("SN"))
@@ -449,6 +481,11 @@ class M2WSV2Protocol(WSV2Protocol):
             calibrated = info.get("Calibrated")
             if isinstance(calibrated, (int, bool)):
                 state.inkjet_calibrated = bool(calibrated)
+
+        if failures == 4:
+            # No inkjet head on this unit: stop polling for the session.
+            self._inkjet_absent = True
+            _LOGGER.info("M2 inkjet endpoints all failed; assuming no inkjet head")
 
     # --- Device identity --------------------------------------------------
 
