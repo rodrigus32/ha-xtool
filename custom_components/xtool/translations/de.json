@@ -26,6 +26,10 @@
           "host": "IP-Adresse",
           "model": "Modell"
         }
+      },
+      "reauth_confirm": {
+        "title": "xTool Laser erneut koppeln",
+        "description": "Das Gerät akzeptiert die gespeicherte Kopplung nicht mehr. Wähle **Senden** und drücke dann auf Aufforderung die Taste am Gerät."
       }
     },
     "error": {
@@ -33,14 +37,22 @@
       "udp_no_reply": "Keine UDP-Discovery-Antwort des Geräts auf Port 20000. IP prüfen, sicherstellen dass das Gerät eingeschaltet ist und sich im selben Subnetz befindet, und dass keine Firewall UDP-Broadcasts blockiert.",
       "unknown_model": "Das Gerät hat auf die Discovery geantwortet, aber sein Modellname wird von dieser Integration nicht erkannt. Bitte ein Issue mit dem gemeldeten Namen erstellen.",
       "protocol_failed": "Das Gerät wurde erkannt, aber der Protokoll-Handshake ist fehlgeschlagen. Möglicherweise ist das Gerät belegt (XCS / xTool Studio offen) oder die Firmware-Version wird nicht unterstützt.",
-      "already_configured": "Dieses Gerät ist bereits konfiguriert."
+      "already_configured": "Dieses Gerät ist bereits konfiguriert.",
+      "pairing_required": "Das Gerät erfordert eine Kopplung (Tastendruck).",
+      "pairing_failed": "Kopplung fehlgeschlagen oder Zeitüberschreitung."
     },
     "abort": {
       "cannot_connect": "Verbindung zum Gerät fehlgeschlagen.",
       "udp_no_reply": "Keine UDP-Discovery-Antwort auf Port 20000 — prüfe ob das Gerät online ist und im selben Subnetz hängt.",
       "unknown_model": "Das gefundene Gerätemodell wird von dieser Integration nicht erkannt.",
       "protocol_failed": "Protokoll-Handshake mit dem Gerät fehlgeschlagen — XCS / xTool Studio schließen und erneut versuchen.",
-      "already_configured": "Dieses Gerät ist bereits konfiguriert."
+      "already_configured": "Dieses Gerät ist bereits konfiguriert.",
+      "pairing_required": "Das Gerät erfordert eine Kopplung (Tastendruck), bevor es hinzugefügt werden kann.",
+      "pairing_failed": "Kopplung fehlgeschlagen oder Zeitüberschreitung. Schließe xTool Studio, drücke die Taste am Gerät innerhalb einer Minute nach dem Start und versuche es erneut.",
+      "reauth_successful": "Kopplung erfolgreich aktualisiert."
+    },
+    "progress": {
+      "pair": "**Drücke jetzt die Taste am xTool-Gerät** (ein kurzer Druck, innerhalb etwa einer Minute).\n\nDas Gerät muss eingeschaltet und xTool Studio geschlossen sein. Das ist nur einmal pro Home-Assistant-Installation nötig."
     }
   },
   "options": {

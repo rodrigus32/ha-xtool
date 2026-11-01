@@ -31,6 +31,7 @@ from .protocol import (
     WSV2_PROBE_TIMEOUT,
     WSV2_PATH,
     WSV2_PORT,
+    V2PairingRequired,
     WSV2Protocol,
     probe_v2,
 )
@@ -41,6 +42,7 @@ __all__ = [
     "WSV2_PROBE_TIMEOUT",
     "WSV2_PATH",
     "WSV2_PORT",
+    "V2PairingRequired",
     "WSV2Protocol",
     "XTOOL_APPAREL_PRINTER_WSV2",
     "XTOOL_F1_LITE_WSV2",

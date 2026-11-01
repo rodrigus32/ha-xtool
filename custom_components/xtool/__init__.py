@@ -8,7 +8,7 @@ import re
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST, Platform
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import HomeAssistantError
+from homeassistant.exceptions import ConfigEntryAuthFailed, HomeAssistantError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
@@ -28,7 +28,8 @@ from .const import (
     FIRMWARE_CHECK_INTERVAL,
 )
 from .coordinator import XtoolCoordinator
-from .protocols import DEVICE_MODELS, LaserInfo, detect_model
+from .protocols import DEVICE_MODELS, LaserInfo, WSV2Protocol, detect_model
+from .protocols.ws_v2 import V2PairingRequired
 
 PLATFORMS = [
     Platform.BINARY_SENSOR,
@@ -150,6 +151,23 @@ async def async_setup_entry(hass: HomeAssistant, entry: XtoolConfigEntry) -> boo
     # V1/V2 switching is needed at runtime — the right entry was picked
     # at config-flow validation time.
     protocol = model.protocol_class(host)
+
+    # V2 firmware (Studio >= 1.9 protocol) can require a one-time
+    # physical button press. The permanent token it hands out is kept in
+    # the config entry and replayed on every connect.
+    if isinstance(protocol, WSV2Protocol):
+        protocol.pairing_token = entry.data.get("pairing_token", "")
+        protocol.allow_pairing = False
+        try:
+            await protocol.connect()
+        except V2PairingRequired as err:
+            raise ConfigEntryAuthFailed(
+                f"xTool at {host} needs to be paired again: {err}"
+            ) from err
+        except Exception as err:  # noqa: BLE001
+            # Anything else is a normal "device offline" case: let the
+            # coordinator's first refresh report it as not-ready.
+            _LOGGER.debug("Early V2 connect to %s failed: %s", host, err)
 
     coordinator = model.coordinator_class(
         hass,

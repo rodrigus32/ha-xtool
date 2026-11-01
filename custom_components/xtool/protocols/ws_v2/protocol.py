@@ -451,6 +451,31 @@ async def probe_v2(host: str, timeout: float = WSV2_PROBE_TIMEOUT) -> bool:
         return False
 
 
+class V2ResponseError(RuntimeError):
+    """Device answered a request with a non-zero ``code``."""
+
+    def __init__(self, method: str, url: str, code: int, msg: str) -> None:
+        super().__init__(f"V2 {method} {url} returned code {code}: {msg}")
+        self.code = code
+        self.msg = msg
+
+
+class V2PairingRequired(ConnectionError):
+    """V2 firmware wants a one-time physical button press (parity 406).
+
+    Raised when the device asks for pairing and the caller did not allow
+    interactive pairing, or when the pairing attempt timed out / was
+    blocked. Mirrors Studio's ``ParityService`` (v1.9.x).
+    """
+
+
+# Seconds to wait for the user to press the device button. Studio
+# polls ``/v1/user/auth-status`` once per second; each poll may block
+# up to 20 s (``Xu`` in the shared worker).
+WSV2_PAIRING_TIMEOUT = 60.0
+WSV2_AUTH_STATUS_POLL_TIMEOUT = 20.0
+
+
 class _PendingRequest:
     """One in-flight request awaiting its response by ``transactionId``."""
 
@@ -557,6 +582,14 @@ class WSV2Protocol(XtoolProtocol):
         self._latest: dict[str, Any] = {}
         self._connected = False
         self._connect_lock = asyncio.Lock()
+        # Pairing (Studio >= 1.9 ``ParityService``): permanent token
+        # persisted by the caller, per-connection session token that
+        # rides on every request after parity succeeds.
+        self.pairing_token: str = ""
+        self.allow_pairing: bool = False
+        self.pairing_timeout: float = WSV2_PAIRING_TIMEOUT
+        self.on_pairing_prompt: Any = None
+        self._session_token: str = ""
         # Coordinator stamps the resolved XtoolDeviceModel via set_model();
         # poll_state reads it to gate per-model peripheral queries.
         self._model: Any = None
@@ -672,6 +705,7 @@ class WSV2Protocol(XtoolProtocol):
             raise ConnectionError(f"V2 WebSocket connect failed: {err}") from err
         _LOGGER.debug("V2 WS open to %s — sending parity handshake", self.host)
         self._connected = True
+        self._session_token = ""
         # Reset the per-connection peripheral-rejection cache — fresh
         # firmware revisions might expose types the previous one didn't.
         self._unsupported_peripheral_types.clear()
@@ -682,6 +716,9 @@ class WSV2Protocol(XtoolProtocol):
         # — V2 firmware closes the WS otherwise.
         try:
             await self._send_first_message()
+        except V2PairingRequired:
+            await self._close_quiet()
+            raise
         except Exception as err:
             _LOGGER.info(
                 "V2 parity handshake failed for %s: %s", self.host, err,
@@ -770,6 +807,8 @@ class WSV2Protocol(XtoolProtocol):
             "timestamp": int(time.time() * 1000),
             "transactionId": transaction_id,
         }
+        if self._session_token and not _skip_connect:
+            payload["sessionToken"] = self._session_token
         deadline = time.monotonic() + timeout
         pending = _PendingRequest(deadline)
         self._pending[transaction_id] = pending
@@ -795,9 +834,7 @@ class WSV2Protocol(XtoolProtocol):
                 "V2 RX %s %s txn=%d code=%d msg=%s",
                 method, url, transaction_id, code, msg,
             )
-            raise RuntimeError(
-                f"V2 {method} {url} returned code {code}: {msg}"
-            )
+            raise V2ResponseError(method, url, code, str(msg))
         result = (
             response.get("data") if isinstance(response, dict) else {}
         ) or {}
@@ -808,20 +845,87 @@ class WSV2Protocol(XtoolProtocol):
         return result
 
     async def _send_first_message(self) -> None:
-        """Studio's ``sendFirstMessageCode`` — must succeed before any
+        """Studio's ``ParityService.execute`` — must succeed before any
         other request fires, otherwise V2 firmware tears down the WS.
+
+        Newer firmware (e.g. M2 ``40.141.012.01.ht05``) answers ``406``
+        until the user presses the physical device button once; the
+        device then hands out a permanent ``token`` that later parity
+        requests present. A successful parity also returns a
+        ``sessionToken`` that must ride on every following request.
         """
-        await self.request(
-            "/v1/user/parity",
-            "GET",
-            data={
-                "userID": WSV2_USER_UUID,
-                "userKey": WSV2_FIRST_MESSAGE_USER_KEY,
-                "timezone": _local_timezone(),
-            },
-            timeout=WSV2_FIRST_MESSAGE_TIMEOUT,
-            _skip_connect=True,
+        data = {
+            "userID": WSV2_USER_UUID,
+            "userKey": WSV2_FIRST_MESSAGE_USER_KEY,
+            "timezone": _local_timezone(),
+            "token": self.pairing_token or "",
+        }
+        try:
+            result = await self.request(
+                "/v1/user/parity",
+                "GET",
+                data=data,
+                timeout=WSV2_FIRST_MESSAGE_TIMEOUT,
+                _skip_connect=True,
+            )
+        except V2ResponseError as err:
+            if err.code != 406:
+                raise
+            result = await self._pair_via_button(err)
+        self._apply_parity_result(result)
+
+    def _apply_parity_result(self, result: dict[str, Any]) -> None:
+        if not isinstance(result, dict):
+            return
+        token = result.get("token")
+        if isinstance(token, str) and token:
+            self.pairing_token = token
+        session = result.get("sessionToken")
+        self._session_token = session if isinstance(session, str) else ""
+
+    async def _pair_via_button(self, first_err: V2ResponseError) -> dict[str, Any]:
+        """Wait for the user to press the device button (parity 406 flow).
+
+        Polls ``/v1/user/auth-status`` once per second like Studio's
+        ``ParityService.pollAuthStatus`` until the device returns the
+        permanent token, reports it blocked, or the timeout expires.
+        """
+        if not self.allow_pairing:
+            raise V2PairingRequired(
+                f"device requires pairing (button press): {first_err.msg}"
+            )
+        _LOGGER.info(
+            "xTool %s requires pairing — press the button on the device "
+            "within %.0f s", self.host, self.pairing_timeout,
         )
+        if self.on_pairing_prompt is not None:
+            try:
+                self.on_pairing_prompt()
+            except Exception:  # pragma: no cover - UI callback only
+                _LOGGER.debug("pairing prompt callback failed", exc_info=True)
+        deadline = time.monotonic() + self.pairing_timeout
+        while time.monotonic() < deadline:
+            await asyncio.sleep(1.0)
+            try:
+                return await self.request(
+                    "/v1/user/auth-status",
+                    "GET",
+                    timeout=WSV2_AUTH_STATUS_POLL_TIMEOUT,
+                    _skip_connect=True,
+                )
+            except V2ResponseError as err:
+                if err.code in (503, 409, 410):
+                    raise V2PairingRequired(
+                        f"pairing blocked or timed out on the device "
+                        f"(code {err.code}): {err.msg}"
+                    ) from err
+                # Any other non-zero code = still waiting for the button.
+                _LOGGER.debug("auth-status pending: code=%s", err.code)
+            except asyncio.TimeoutError as err:
+                raise V2PairingRequired(
+                    "pairing timed out waiting for the device button"
+                ) from err
+        raise V2PairingRequired("pairing timed out waiting for the device button")
 
     # ── action helpers (entity write-paths) ──────────────────────────
 

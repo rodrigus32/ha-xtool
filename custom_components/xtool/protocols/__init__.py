@@ -41,6 +41,7 @@ from .rest import (
 from .s1 import S1Protocol, XTOOL_S1
 from .ws_v2 import (
     WSV2_MODELS,
+    V2PairingRequired,
     WSV2Protocol,
     probe_v2,
 )
@@ -114,9 +115,17 @@ def detect_model(device_name: str) -> XtoolDeviceModel:
 VALIDATION_ERROR_UDP_NO_REPLY = "udp_no_reply"
 VALIDATION_ERROR_UNKNOWN_MODEL = "unknown_model"
 VALIDATION_ERROR_PROTOCOL_FAILED = "protocol_failed"
+# V2 firmware asked for a one-time physical button press (parity 406).
+VALIDATION_ERROR_PAIRING_REQUIRED = "pairing_required"
+VALIDATION_ERROR_PAIRING_FAILED = "pairing_failed"
 
 
-async def validate_connection(host: str) -> ConnectionInfo | str:
+async def validate_connection(
+    host: str,
+    *,
+    allow_pairing: bool = False,
+    pairing_token: str = "",
+) -> ConnectionInfo | str:
     """Identify a device by UDP probe, then validate via its protocol.
 
     Selection algorithm:
@@ -179,6 +188,9 @@ async def validate_connection(host: str) -> ConnectionInfo | str:
         return VALIDATION_ERROR_UNKNOWN_MODEL
 
     protocol = chosen.protocol_class(host)
+    if isinstance(protocol, WSV2Protocol):
+        protocol.allow_pairing = allow_pairing
+        protocol.pairing_token = pairing_token
     try:
         await protocol.connect()
         info = await protocol.get_device_info()
@@ -212,6 +224,14 @@ async def validate_connection(host: str) -> ConnectionInfo | str:
             device_info=info,
             protocol_version=chosen.protocol_version,
             model_id=chosen.model_id,
+            pairing_token=getattr(protocol, "pairing_token", "") or "",
+        )
+    except V2PairingRequired as err:
+        _LOGGER.debug("Validation against %s as %s needs pairing: %s",
+                      host, chosen.model_id, err)
+        return (
+            VALIDATION_ERROR_PAIRING_FAILED if allow_pairing
+            else VALIDATION_ERROR_PAIRING_REQUIRED
         )
     except Exception as err:
         _LOGGER.debug("Validation against %s as %s failed: %s",
@@ -321,6 +341,8 @@ __all__ = [
     "XtoolDeviceModel",
     "XtoolDeviceState",
     "XtoolProtocol",
+    "VALIDATION_ERROR_PAIRING_FAILED",
+    "VALIDATION_ERROR_PAIRING_REQUIRED",
     "VALIDATION_ERROR_PROTOCOL_FAILED",
     "VALIDATION_ERROR_UDP_NO_REPLY",
     "VALIDATION_ERROR_UNKNOWN_MODEL",

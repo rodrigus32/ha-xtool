@@ -92,6 +92,10 @@ class ConnectionInfo:
     # candidate that won the V1/V2 selection). Persisted to entry data so
     # ``async_setup_entry`` re-resolves the exact entry on every reload.
     model_id: str = ""
+    # Permanent pairing token returned by V2 firmware that requires the
+    # user to press the physical device button once (Studio >= 1.9).
+    # Empty for devices that never asked for pairing.
+    pairing_token: str = ""
 
 
 @dataclass

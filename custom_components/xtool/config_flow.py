@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -40,6 +41,7 @@ from .const import (
 from .discovery import DiscoveredDevice, discover_devices
 from .protocols import (
     ConnectionInfo,
+    VALIDATION_ERROR_PAIRING_REQUIRED,
     VALIDATION_ERROR_UDP_NO_REPLY,
     VALIDATION_ERROR_UNKNOWN_MODEL,
     detect_models,
@@ -77,6 +79,12 @@ class XtoolConfigFlow(ConfigFlow, domain=DOMAIN):
         # picker can render the discovered name + firmware verbatim
         # (helps the user file a complete bug report).
         self._fallback_discovered: DiscoveredDevice | None = None
+        # Button-press pairing (V2 firmware, Studio >= 1.9): host being
+        # paired, the background task polling the device, and the result.
+        self._pair_host: str | None = None
+        self._pair_task: asyncio.Task[ConnectionInfo | str] | None = None
+        self._pair_result: ConnectionInfo | str | None = None
+        self._reauth_entry: ConfigEntry | None = None
 
     @staticmethod
     @callback
@@ -105,6 +113,15 @@ class XtoolConfigFlow(ConfigFlow, domain=DOMAIN):
         _LOGGER.debug("Discovery: %s (%s)", name or "unknown", host)
 
         conn_info = await validate_connection(host)
+        if conn_info == VALIDATION_ERROR_PAIRING_REQUIRED:
+            # The device needs a button press first; defer that to the
+            # confirm step so a background discovery never blocks.
+            self._discovered_host = host
+            self._discovered_name = name
+            self.context["title_placeholders"] = {
+                "name": name or DEFAULT_DEVICE_NAME
+            }
+            return await self.async_step_discovery_confirm()
         if not isinstance(conn_info, ConnectionInfo):
             # Discovery flow has no form to surface ``errors`` on, so the
             # granular reason rides through the abort dialog instead.
@@ -200,6 +217,10 @@ class XtoolConfigFlow(ConfigFlow, domain=DOMAIN):
             return await self.async_step_manual()
 
         conn_info = await validate_connection(host)
+        if conn_info == VALIDATION_ERROR_PAIRING_REQUIRED:
+            self._pair_host = host
+            self._pair_task = None
+            return await self.async_step_pair()
         if not isinstance(conn_info, ConnectionInfo):
             reason = conn_info or "cannot_connect"
             # Discovery couldn't identify the device — fall back to the
@@ -243,15 +264,92 @@ class XtoolConfigFlow(ConfigFlow, domain=DOMAIN):
 
         return self.async_create_entry(
             title=conn_info.name,
-            data={
-                CONF_HOST: host,
-                "serial_number": conn_info.serial_number,
-                "device_name": conn_info.name,
-                "firmware_version": conn_info.firmware_version,
-                "laser_power_watts": conn_info.laser_power_watts,
-                "model_key": f"{conn_info.model_id}_{conn_info.protocol_version}",
-            },
+            data=self._entry_data(host, conn_info),
         )
+
+    @staticmethod
+    def _entry_data(host: str, conn_info: ConnectionInfo) -> dict[str, Any]:
+        data: dict[str, Any] = {
+            CONF_HOST: host,
+            "serial_number": conn_info.serial_number,
+            "device_name": conn_info.name,
+            "firmware_version": conn_info.firmware_version,
+            "laser_power_watts": conn_info.laser_power_watts,
+            "model_key": f"{conn_info.model_id}_{conn_info.protocol_version}",
+        }
+        if conn_info.pairing_token:
+            data["pairing_token"] = conn_info.pairing_token
+        return data
+
+    # ── button-press pairing (V2 firmware that answers parity 406) ──
+
+    async def async_step_pair(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Wait for the user to press the physical button on the device."""
+        if self._pair_task is None:
+            host = self._pair_host or ""
+            token = (
+                self._reauth_entry.data.get("pairing_token", "")
+                if self._reauth_entry is not None else ""
+            )
+            self._pair_task = self.hass.async_create_task(
+                validate_connection(host, allow_pairing=True, pairing_token=token)
+            )
+        if not self._pair_task.done():
+            return self.async_show_progress(
+                step_id="pair",
+                progress_action="pair",
+                progress_task=self._pair_task,
+            )
+        try:
+            self._pair_result = self._pair_task.result()
+        except Exception:  # noqa: BLE001
+            _LOGGER.exception("Pairing task crashed")
+            self._pair_result = "cannot_connect"
+        self._pair_task = None
+        return self.async_show_progress_done(next_step_id="pair_done")
+
+    async def async_step_pair_done(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        result = self._pair_result
+        host = self._pair_host or ""
+        if not isinstance(result, ConnectionInfo):
+            return self.async_abort(reason=result or "cannot_connect")
+        if self._reauth_entry is not None:
+            return self.async_update_reload_and_abort(
+                self._reauth_entry,
+                data={
+                    **self._reauth_entry.data,
+                    "pairing_token": result.pairing_token,
+                },
+                reason="reauth_successful",
+            )
+        if result.serial_number:
+            await self.async_set_unique_id(result.serial_number)
+            self._abort_if_unique_id_configured(updates={CONF_HOST: host})
+        return self.async_create_entry(
+            title=result.name, data=self._entry_data(host, result)
+        )
+
+    async def async_step_reauth(
+        self, entry_data: dict[str, Any]
+    ) -> ConfigFlowResult:
+        """Device no longer accepts our stored token — pair again."""
+        self._reauth_entry = self.hass.config_entries.async_get_entry(
+            self.context["entry_id"]
+        )
+        self._pair_host = entry_data.get(CONF_HOST)
+        self._pair_task = None
+        return await self.async_step_reauth_confirm()
+
+    async def async_step_reauth_confirm(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        if user_input is not None:
+            return await self.async_step_pair()
+        return self.async_show_form(step_id="reauth_confirm")
 
     async def async_step_pick_model(
         self, user_input: dict[str, Any] | None = None,
