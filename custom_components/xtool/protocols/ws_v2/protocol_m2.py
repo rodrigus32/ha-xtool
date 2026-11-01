@@ -42,6 +42,8 @@ model by design.
 
 from __future__ import annotations
 
+import time
+
 import logging
 from typing import Any
 
@@ -732,7 +734,52 @@ class M2WSV2Protocol(WSV2Protocol):
             for url, payload in event["data"].items():
                 self._dispatch_m2_report(url, payload)
             return
+        if event.get("method") in ("NOTIFY", "NOTIFY-RECORD") and isinstance(
+            event.get("data"), list
+        ):
+            for item in event["data"]:
+                if isinstance(item, dict):
+                    self._dispatch_m2_notify(str(item.get("name") or ""), item)
+            return
         super()._dispatch_push(event)
+
+    # ``/v1/platform/device/process`` ``content.action`` -> Job event type.
+    _M2_PROCESS_ACTION_EVENTS = {
+        "start": "started",
+        "finish": "finished",
+        "pause": "paused",
+        "resume": "resumed",
+        "cancel": "cancelled",
+    }
+
+    def _dispatch_m2_notify(self, name: str, item: dict[str, Any]) -> None:
+        """Handle one entry of a ``NOTIFY`` / ``NOTIFY-RECORD`` frame.
+
+        Firmware 40.141.012 sends job lifecycle as
+        ``{method:"NOTIFY-RECORD", data:[{name:"/v1/platform/device/process",
+        content:{action:"ready|start|finish", taskId}}]}`` and motion/home
+        notices as ``{method:"NOTIFY", data:[{name, level, info:{code}}]}``.
+        """
+        if name == M2_PATH_PROCESS_EVENT:
+            content = item.get("content")
+            if not isinstance(content, dict):
+                return
+            action = str(content.get("action") or "").lower()
+            task_id = str(content.get("taskId") or "")
+            if task_id:
+                self._latest["task_id"] = task_id
+            if action == "start":
+                self._m2_task_started_at = time.monotonic()
+            elif action in ("finish", "cancel"):
+                started = getattr(self, "_m2_task_started_at", None)
+                if started is not None:
+                    self._latest["task_time"] = int(time.monotonic() - started)
+                    self._m2_task_started_at = None
+            kind = self._M2_PROCESS_ACTION_EVENTS.get(action)
+            if kind:
+                self._maybe_emit_job_event(kind, task_id, {"task_id": task_id})
+            return
+        _LOGGER.debug("M2 NOTIFY unhandled name=%s item=%r", name, item)
 
     def _dispatch_m2_report(self, url: str, payload: Any) -> None:
         """Dispatch a single M2 REPORT ``(url, payload)`` pair."""
