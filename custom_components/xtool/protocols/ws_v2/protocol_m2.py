@@ -380,8 +380,10 @@ class M2WSV2Protocol(WSV2Protocol):
         if (
             model is not None
             and getattr(model, "has_inkjet", False)
-            and not getattr(self, "_inkjet_absent", False)
             and slow_tick
+            and self._m2_poll_counter
+            % (self._INKJET_POLL_EVERY * getattr(self, "_inkjet_backoff", 1))
+            == 0
         ):
             await self._poll_inkjet(state)
 
@@ -483,9 +485,13 @@ class M2WSV2Protocol(WSV2Protocol):
                 state.inkjet_calibrated = bool(calibrated)
 
         if failures == 4:
-            # No inkjet head on this unit: stop polling for the session.
-            self._inkjet_absent = True
-            _LOGGER.info("M2 inkjet endpoints all failed; assuming no inkjet head")
+            # Head probably not mounted right now (the M2 answers 500 to
+            # every inkjet route then). Back off to ~10x slower polling
+            # rather than giving up, so mounting the head later works.
+            self._inkjet_backoff = 10
+            _LOGGER.info("M2 inkjet endpoints all failed; head likely not mounted, backing off")
+        else:
+            self._inkjet_backoff = 1
 
     # --- Device identity --------------------------------------------------
 
