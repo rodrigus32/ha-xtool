@@ -341,6 +341,15 @@
       },
       "inkjet_toner_sn": {
         "name": "Toner serial"
+      },
+      "wifi_rssi": {
+        "name": "Wi-Fi signal"
+      },
+      "wifi_ssid": {
+        "name": "Wi-Fi network"
+      },
+      "wifi_channel": {
+        "name": "Wi-Fi channel"
       }
     },
     "binary_sensor": {

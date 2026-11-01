@@ -189,6 +189,7 @@ class XtoolDeviceModel:
     has_button_event: bool = False  # WS-V2: /button/status push fires
     has_inkjet: bool = False  # M2: inkjet head + /v1/project/inkjet/*
     has_inkjet_sensors: bool = False  # DT001: ink/water bottles, heater, film sensors
+    has_wifi_info: bool = False  # M2: /v1/platform/wifi/info REPORT push
     # BT accessory subsystem. Default True — every Studio bundle (S1
     # / D-series / REST / WS-V2) defines ``getAllDangleConnectList``
     # (M9098), and the firmware returns an empty list when no dongle
@@ -375,6 +376,10 @@ class XtoolDeviceState:
     inkjet_version: str = ""
     inkjet_toner_sn: str = ""
     inkjet_calibrated: bool | None = None
+    # Wi-Fi link info (M2 /v1/platform/wifi/info REPORT push).
+    wifi_rssi_dbm: int | None = None
+    wifi_ssid: str | None = None
+    wifi_channel: int | None = None
     machine_lock: bool | None = None
 
     # REST IR LEDs

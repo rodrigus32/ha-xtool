@@ -534,6 +534,7 @@ class WSV2Protocol(XtoolProtocol):
         "print_tool_type", "flame_level_hl", "md_mode_enabled",
         "working_seconds", "session_count", "standby_seconds",
         "tool_runtime_seconds", "alarm_present",
+        "wifi_rssi_dbm", "wifi_ssid", "wifi_channel",
     )
 
     # URL routing keys carried in the V2 instruction-frame ``url:`` field.

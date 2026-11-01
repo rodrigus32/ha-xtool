@@ -524,6 +524,7 @@ XTOOL_M2_WSV2 = XtoolDeviceModel(
     has_cover_sensor=True,
     has_laser_head_position=True,
     has_inkjet=True,
+    has_wifi_info=True,
     has_beeper=True,
     has_flame_alarm=True,
     # Fed by GET /v1/project/process/statistics (JS002 bundle route

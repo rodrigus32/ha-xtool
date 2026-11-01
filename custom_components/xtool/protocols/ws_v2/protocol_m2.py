@@ -841,9 +841,22 @@ class M2WSV2Protocol(WSV2Protocol):
                         self._latest["firmware_version"] = str(fw_ver)
             return
 
-        # /v1/platform/wifi/info + any other unhandled URL —
-        # log-only for now. Wire the WiFi diagnostic sensors in a
-        # follow-up once the entity surface lands.
+        if url == "/v1/platform/wifi/info":
+            # Pushed every ~5 s: {rssiDbm, ssid, channel, freq, ...}.
+            if isinstance(payload, dict):
+                rssi = payload.get("rssiDbm")
+                if isinstance(rssi, (int, float)):
+                    self._latest["wifi_rssi_dbm"] = int(rssi)
+                if payload.get("ssid"):
+                    self._latest["wifi_ssid"] = str(payload["ssid"])
+                ch = payload.get("channel")
+                if isinstance(ch, (int, float)):
+                    self._latest["wifi_channel"] = int(ch)
+            return
+
+        if url == "/v1/platform/ble/info":
+            return  # BLE advertising name only; nothing to surface.
+
         _LOGGER.debug("M2 REPORT unhandled url=%s payload=%r", url, payload)
 
     # --- Camera snap ------------------------------------------------------

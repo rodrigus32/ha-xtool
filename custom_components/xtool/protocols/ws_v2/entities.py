@@ -392,6 +392,39 @@ _GATED_SENSOR_DESCRIPTIONS: tuple[
         ),
         "has_inkjet",
     ),
+    # --- Wi-Fi link diagnostics (M2, gated on has_wifi_info) -------------
+    (
+        XtoolSensorEntityDescription(
+            key="wifi_rssi",
+            translation_key="wifi_rssi",
+            device_class=SensorDeviceClass.SIGNAL_STRENGTH,
+            native_unit_of_measurement="dBm",
+            state_class=SensorStateClass.MEASUREMENT,
+            entity_category=EntityCategory.DIAGNOSTIC,
+            value_fn=lambda state, _: state.wifi_rssi_dbm,
+        ),
+        "has_wifi_info",
+    ),
+    (
+        XtoolSensorEntityDescription(
+            key="wifi_ssid",
+            translation_key="wifi_ssid",
+            icon="mdi:wifi",
+            entity_category=EntityCategory.DIAGNOSTIC,
+            value_fn=lambda state, _: state.wifi_ssid,
+        ),
+        "has_wifi_info",
+    ),
+    (
+        XtoolSensorEntityDescription(
+            key="wifi_channel",
+            translation_key="wifi_channel",
+            icon="mdi:wifi-cog",
+            entity_category=EntityCategory.DIAGNOSTIC,
+            value_fn=lambda state, _: state.wifi_channel,
+        ),
+        "has_wifi_info",
+    ),
     # --- Apparel Printer inkjet sensors (gated on has_inkjet_sensors) ----
     (
         XtoolSensorEntityDescription(
