@@ -638,15 +638,16 @@ class M2WSV2Protocol(WSV2Protocol):
                 data={"brightness": value},
             )
 
-        # smoking_fan — on/off. Bundle only defines the URL
-        # (``setSmokeFanSpeed``); body shape borrowed from the
-        # ``weakLaser`` precedent (``{enable:!0}``) since Studio
-        # doesn't ship an explicit ``transformRequest``.
+        # smoking_fan — Studio drives this endpoint with ``{speed: N}``
+        # (JS002.turnOnExhaustFan uses speed=1000; 0 = off). The M2
+        # exposes no GET for fan state, so remember what we last sent.
         if peripheral_type == "smoking_fan" and action in ("on", "off"):
-            return await self.request(
+            reply = await self.request(
                 M2_PATH_PERIPHERAL_SMOKE_FAN, "POST",
-                data={"enable": action == "on"},
+                data={"speed": 1000 if action == "on" else 0},
             )
+            self._latest["smoking_fan_running"] = action == "on"
+            return reply
 
         # air_pump — same best-effort body shape as smoking_fan.
         if peripheral_type == "air_pump" and action in ("on", "off"):
