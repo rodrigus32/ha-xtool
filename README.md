@@ -4,8 +4,11 @@ Home Assistant integration for xTool laser cutters, engravers, fiber-laser welde
 
 This integration communicates directly with your xTool device over the local network using the reverse-engineered WebSocket and REST protocols. No cloud connection required.
 
+> [!NOTE]
+> **This is a maintained fork** of [thecodingdad/ha-xtool](https://github.com/thecodingdad/ha-xtool) (MIT, © thecodingdad), with support for the xTool M2 on firmware 40.141.012+ / xTool Studio 1.9 (button-press pairing, config/job/inkjet/Wi-Fi entities) and the Home Assistant 2026.9 `via_device_id` change. It uses the same `xtool` domain, so remove the original from HACS before installing this one — your existing config entry is kept.
+
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
-[![GitHub Release](https://img.shields.io/github/v/release/thecodingdad/ha-xtool)](https://github.com/thecodingdad/ha-xtool/releases)
+[![GitHub Release](https://img.shields.io/github/v/release/rodrigus32/ha-xtool)](https://github.com/rodrigus32/ha-xtool/releases)
 
 > [!IMPORTANT] 
 > **This is an independent community project and is not affiliated with or endorsed by xTool. The integration is provided as-is, without any warranty.** Operating a laser cutter, engraver or fiber-laser welder through Home Assistant carries real-world safety risks (fire, blindness, burns, electrical hazards) — automated control over a high-power laser is *your* responsibility. Use at your own risk; see the full [Disclaimer](#disclaimer) for details.
@@ -50,18 +53,18 @@ V1/V2 selection is automatic. UDP discovery tags each device as V1 or V2 (legacy
 
 ### HACS (Recommended)
 
-[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=thecodingdad&repository=ha-xtool&category=integration)
+[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=rodrigus32&repository=ha-xtool&category=integration)
 
 Or add manually:
 1. Open HACS in your Home Assistant instance
 2. Click the three dots in the top right corner and select **Custom repositories**
-3. Enter `https://github.com/thecodingdad/ha-xtool` and select **Integration** as the category
+3. Enter `https://github.com/rodrigus32/ha-xtool` and select **Integration** as the category
 4. Click **Add**, then search for "xTool Laser" and download it
 5. Restart Home Assistant
 
 ### Manual Installation
 
-1. Download the latest release from [GitHub Releases](https://github.com/thecodingdad/ha-xtool/releases)
+1. Download the latest release from [GitHub Releases](https://github.com/rodrigus32/ha-xtool/releases)
 2. Copy the `custom_components/xtool` folder to your Home Assistant `config/custom_components/` directory
 3. Restart Home Assistant
 
