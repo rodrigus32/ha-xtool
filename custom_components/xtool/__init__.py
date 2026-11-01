@@ -193,6 +193,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: XtoolConfigEntry) -> boo
 
     entry.runtime_data = coordinator
 
+    # Register the laser device before any platform adds entities, so
+    # accessory child devices can reference it by registry id
+    # (``via_device_id``) instead of the deprecated ``via_device``
+    # identifier tuple (HA 2026.9+, issue #17).
+    laser_device = dr.async_get(hass).async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={(DOMAIN, coordinator.serial_number)},
+        manufacturer="xTool",
+        name=coordinator.device_name,
+        model=coordinator.model.name,
+        serial_number=coordinator.serial_number,
+    )
+    coordinator.laser_device_id = laser_device.id
+
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     entry.async_on_unload(entry.add_update_listener(_async_options_updated))

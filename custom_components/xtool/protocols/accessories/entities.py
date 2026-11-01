@@ -72,6 +72,35 @@ def _entity_category(value: str | None) -> EntityCategory | None:
     return None
 
 
+# ``via_device`` (identifier tuple) is deprecated on HA 2026.9+ in
+# favour of ``via_device_id`` (device-registry id). Use the id form
+# when this HA's ``DeviceInfo`` knows it and the laser device has
+# been registered; otherwise fall back to the legacy tuple.
+_HAS_VIA_DEVICE_ID = "via_device_id" in getattr(DeviceInfo, "__annotations__", {})
+
+
+def _accessory_device_info(
+    coordinator: Any,
+    laser_sid: str,
+    accessory_key: str,
+    friendly_name: str,
+    serial_number: str | None,
+) -> DeviceInfo:
+    info = DeviceInfo(
+        identifiers={(DOMAIN, f"{laser_sid}:{accessory_key}")},
+        name=friendly_name,
+        manufacturer="xTool",
+        model=friendly_name,
+        serial_number=serial_number,
+    )
+    laser_device_id = getattr(coordinator, "laser_device_id", None)
+    if _HAS_VIA_DEVICE_ID and laser_device_id:
+        info["via_device_id"] = laser_device_id
+    else:
+        info["via_device"] = (DOMAIN, laser_sid)
+    return info
+
+
 class _AccessoryEntity(XtoolEntity):
     """Common base for every accessory entity.
 
@@ -147,13 +176,12 @@ class _AccessoryEntity(XtoolEntity):
             product_sn if is_synthetic_sn
             else product_sn or self._sn
         )
-        return DeviceInfo(
-            identifiers={(DOMAIN, f"{laser_sid}:{self._accessory_key}")},
-            via_device=(DOMAIN, laser_sid),
-            name=self._definition.friendly_name,
-            manufacturer="xTool",
-            model=self._definition.friendly_name,
-            serial_number=serial_for_info,
+        return _accessory_device_info(
+            self.coordinator,
+            laser_sid,
+            self._accessory_key,
+            self._definition.friendly_name,
+            serial_for_info,
         )
 
     @property
@@ -538,13 +566,12 @@ class _AccessoryUpdate(XtoolEntity, UpdateEntity):
             product_sn if is_synthetic_sn
             else product_sn or self._sn
         )
-        return DeviceInfo(
-            identifiers={(DOMAIN, f"{laser_sid}:{self._accessory_key}")},
-            via_device=(DOMAIN, laser_sid),
-            name=self._definition.friendly_name,
-            manufacturer="xTool",
-            model=self._definition.friendly_name,
-            serial_number=serial_for_info,
+        return _accessory_device_info(
+            self.coordinator,
+            laser_sid,
+            self._accessory_key,
+            self._definition.friendly_name,
+            serial_for_info,
         )
 
     @property
